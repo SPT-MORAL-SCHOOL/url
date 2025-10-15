@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPT Moral URL - ย่อลิงก์โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            onAuthStateChanged, 
+            createUserWithEmailAndPassword, 
+            signInWithEmailAndPassword,
+            signOut
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            setDoc, 
+            onSnapshot, 
+            collection, 
+            query, 
+            where, 
+            addDoc, 
+            getDocs,
+            getDoc,
+            serverTimestamp,
+            deleteDoc,
+            updateDoc
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        setLogLevel('Debug');
+
+        // Global Firebase Configuration and Initialization
+        window.firebaseConfig = {
+            apiKey: "AIzaSyCWad0XjB8mymrDDGn8XGTTrGvHCr2-GIk",
+            authDomain: "fir-url-22a9f.firebaseapp.com",
+            projectId: "fir-url-22a9f",
+            storageBucket: "fir-url-22a9f.firebasestorage.app",
+            messagingSenderId: "144462014577",
+            appId: "1:144462014577:web:48b19158a73934754513d0",
+            measurementId: "G-78S4MF8SMX"
+        };
+        
+        window.app = initializeApp(window.firebaseConfig);
+        window.db = getFirestore(window.app);
+        window.auth = getAuth(window.app);
+        
+        // --- CONSTANTS ---
+        const ADMIN_EMAIL = 'sptmorral@spt.ac.th';
+        const baseShortUrl = 'https://spt-moral-school.github.io/url/#';
+
+        // Global variables for environment context (MANDATORY USE)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        window.App = {
+            state: {
+                currentView: 'loading', // 'redirect', 'login', 'dashboard', 'public', 'admin'
+                currentUser: null,
+                userId: null,
+                userMetadata: { isAdmin: false, isApproved: false, role: 'guest' },
+                allLinks: [], // For Admin link management
+                userLinks: [],
+                publicLinks: [],
+                allUsers: [], // For Admin user management (including pending)
+                isAuthReady: false,
+                modalMessage: null,
+                modalType: 'info' // 'info', 'error'
+            },
+            
+            // --- FIREBASE PATHS & HELPERS ---
+            getAppId: () => appId,
+            getLinkCollectionRef: () => collection(window.db, `artifacts/${appId}/public/data/links`),
+            getUserMetadataCollectionRef: () => collection(window.db, `artifacts/${appId}/public/data/app_users`), // Store metadata in public data for admin to manage
+            
+            // --- AUTHENTICATION & INITIALIZATION ---
+
+            initAuth: async () => {
+                if (initialAuthToken) {
+                    try {
+                        await signInWithCustomToken(window.auth, initialAuthToken);
+                    } catch (e) {
+                        console.error("Error signing in with custom token, signing in anonymously.", e);
+                        await signInAnonymously(window.auth);
+                    }
+                } else {
+                    await signInAnonymously(window.auth);
+                }
+            },
+
+            init: () => {
+                window.App.initAuth();
+                onAuthStateChanged(window.auth, async (user) => {
+                    if (user) {
+                        window.App.state.currentUser = user;
+                        window.App.state.userId = user.uid;
+                        if (!user.isAnonymous) {
+                            await window.App.fetchUserMetadata(user.uid);
+                        }
+                    } else {
+                        window.App.state.currentUser = null;
+                        window.App.state.userId = null;
+                        window.App.state.userMetadata = { isAdmin: false, isApproved: false, role: 'guest' };
+                    }
+                    window.App.state.isAuthReady = true;
+                    window.App.updateView();
+                    window.App.setupListeners();
+                });
+            },
+
+            fetchUserMetadata: async (uid) => {
+                try {
+                    const docRef = doc(window.App.getUserMetadataCollectionRef(), uid);
+                    const docSnap = await getDoc(docRef);
+
+                    let metadata = { isAdmin: false, isApproved: false, role: 'user' };
+                    
+                    const isAdmin = window.App.state.currentUser.email === ADMIN_EMAIL;
+
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        metadata.isApproved = data.approved === true;
+                    }
+                    
+                    if (isAdmin) {
+                        metadata.isAdmin = true;
+                        metadata.isApproved = true; // Admin is always approved
+                    } else if (!docSnap.exists()) {
+                        // User logged in via email/password but no metadata record (newly registered or error)
+                        metadata.isApproved = false; // Treat as pending
+                    }
+                    
+                    window.App.state.userMetadata = metadata;
+                    window.App.render();
+
+                } catch (e) {
+                    console.error("Error fetching user metadata:", e);
+                    window.App.state.userMetadata = { isAdmin: false, isApproved: false, role: 'user' };
+                }
+            },
+
+            // --- VIEW MANAGEMENT & ROUTING ---
+            
+            updateView: () => {
+                const hash = window.location.hash.substring(1);
+                const isAuthenticated = window.App.state.currentUser && !window.App.state.currentUser.isAnonymous;
+                
+                // 1. Handle direct short code redirection attempt
+                if (hash && !hash.startsWith('public')) {
+                    window.App.state.currentView = 'redirect';
+                    window.App.handleRedirect();
+                    return;
+                }
+                
+                // 2. Handle views requiring authentication
+                if (isAuthenticated) {
+                    if (window.App.state.userMetadata.isApproved) {
+                        window.App.state.currentView = hash.startsWith('public') ? 'public' : 'dashboard';
+                    } else {
+                        // Logged in but pending approval
+                        window.App.state.currentView = 'login'; // Shows pending message
+                    }
+                } else {
+                    // Not logged in (Anonymous)
+                    window.App.state.currentView = 'login';
+                }
+                window.App.render();
+            },
+
+            // --- FIREBASE LISTENERS (Realtime Data) ---
+
+            setupListeners: () => {
+                if (!window.App.state.isAuthReady) return;
+
+                // 1. Listen for ALL links (needed for public dashboard and admin view)
+                onSnapshot(window.App.getLinkCollectionRef(), (snapshot) => {
+                    const allLinks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    window.App.state.allLinks = allLinks;
+                    window.App.state.publicLinks = allLinks.filter(link => link.isPublic);
+                    
+                    if (window.App.state.userId && window.App.state.userMetadata.isApproved) {
+                        window.App.state.userLinks = allLinks.filter(link => link.createdBy === window.App.state.userId);
+                    } else {
+                        window.App.state.userLinks = [];
+                    }
+                    window.App.render();
+                }, (error) => console.error("Error listening to all links:", error));
+
+                // 2. Listen for ALL Users (only if user is approved/admin)
+                if (window.App.state.userId && window.App.state.userMetadata.isAdmin) {
+                    onSnapshot(window.App.getUserMetadataCollectionRef(), (snapshot) => {
+                        window.App.state.allUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+                        window.App.render();
+                    }, (error) => console.error("Error listening to all users:", error));
+                }
+            },
+
+            // --- MODAL/MESSAGING (Toast) ---
+            
+            showMessage: (message, type = 'info', duration = 3500) => {
+                window.App.state.modalMessage = message;
+                window.App.state.modalType = type;
+                window.App.render();
+                setTimeout(() => {
+                    window.App.state.modalMessage = null;
+                    window.App.render();
+                }, duration);
+            },
+            
+            // --- UTILITIES ---
+            
+            copyToClipboard: (text) => {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    window.App.showMessage('คัดลอกสำเร็จ!', 'info');
+                } catch (err) {
+                    console.error('Failed to copy text: ', err);
+                    window.App.showMessage('คัดลอกไม่สำเร็จ!', 'error');
+                }
+                document.body.removeChild(textarea);
+            },
+
+            // --- REDIRECT LOGIC ---
+            
+            handleRedirect: async () => {
+                const shortCode = window.location.hash.substring(1);
+                if (!shortCode || shortCode === 'public') return;
+
+                window.App.state.currentView = 'redirect';
+                window.App.render();
+                
+                try {
+                    const q = query(window.App.getLinkCollectionRef(), where("shortCode", "==", shortCode));
+                    const querySnapshot = await getDocs(q);
+                    
+                    if (querySnapshot.empty) {
+                        window.App.state.currentView = 'login';
+                        window.App.showMessage(`ไม่พบรหัสย่อ "${shortCode}"!`, 'error');
+                        window.location.hash = '';
+                        window.App.render();
+                        return;
+                    }
+                    
+                    const doc = querySnapshot.docs[0];
+                    const data = doc.data();
+                    const longUrl = data.longUrl;
+                    
+                    // Update click count (non-critical, best effort)
+                    await updateDoc(doc.ref, { clicks: (data.clicks || 0) + 1 });
+                    
+                    window.App.showMessage(`กำลังนำทางไปที่: ${longUrl}`, 'info', 3000);
+                    setTimeout(() => window.location.replace(longUrl), 1000);
+
+                } catch (e) {
+                    console.error("Error during redirection lookup:", e);
+                    window.App.showMessage('เกิดข้อผิดพลาดในการค้นหาลิงก์', 'error');
+                    window.App.state.currentView = 'login';
+                    window.location.hash = '';
+                    window.App.render();
+                }
+            },
+            
+            // --- RENDER FUNCTION (The Core Renderer) ---
+
+            render: () => {
+                const { currentView, currentUser, userMetadata, userLinks, publicLinks, allLinks, allUsers, isAuthReady, modalMessage, modalType } = window.App.state;
+                const root = document.getElementById('root');
+                if (!root) return;
+
+                if (!isAuthReady) {
+                    root.innerHTML = window.App.renderLoading();
+                    return;
+                }
+
+                let contentHtml = '';
+                
+                if (currentView === 'login') {
+                    contentHtml = window.App.renderLoginView();
+                } else if (currentView === 'dashboard' && userMetadata.isApproved) {
+                    contentHtml = window.App.renderDashboard(userLinks, userMetadata.isAdmin, allUsers, allLinks);
+                } else if (currentView === 'public' && !currentUser.isAnonymous) {
+                    contentHtml = window.App.renderPublicDashboard(publicLinks);
+                } else {
+                    // Fallback to login if somehow approved user hits unapproved path
+                    contentHtml = window.App.renderLoginView();
+                }
+                
+                root.innerHTML = window.App.renderShell(contentHtml, currentUser, userMetadata);
+
+                if (modalMessage) {
+                    const modalContainer = document.getElementById('modal-container');
+                    if (modalContainer) {
+                        modalContainer.innerHTML = window.App.renderModal(modalMessage, modalType);
+                    }
+                } else {
+                    const modalContainer = document.getElementById('modal-container');
+                    if (modalContainer) {
+                        modalContainer.innerHTML = '';
+                    }
+                }
+            },
+            
+            // --- UI Components ---
+            
+            renderLoading: () => `
+                <div class="flex items-center justify-center min-h-screen bg-gray-50">
+                    <div class="text-center p-8 bg-white rounded-3xl shadow-2xl transition duration-500 transform hover:scale-105">
+                        <i class="fas fa-spinner fa-spin text-5xl text-blue-600 mb-4 animate-bounce"></i>
+                        <p class="text-xl font-bold text-gray-700">กำลังโหลดระบบ...</p>
+                    </div>
+                </div>
+            `,
+
+            renderRedirect: (code) => `
+                <div class="flex items-center justify-center min-h-screen bg-gray-50">
+                    <div class="text-center p-8 bg-white rounded-3xl shadow-2xl transition duration-500 transform hover:scale-105">
+                        <i class="fas fa-link text-5xl text-green-600 mb-4 animate-bounce"></i>
+                        <p class="text-xl font-bold text-gray-700">กำลังนำทางไปยัง: /#${code}</p>
+                        <p class="text-sm text-gray-500 mt-2">โปรดรอสักครู่...</p>
+                    </div>
+                </div>
+            `,
+
+            renderModal: (message, type) => {
+                const bgColor = type === 'error' ? 'bg-red-500' : 'bg-blue-500';
+                const icon = type === 'error' ? 'fas fa-exclamation-triangle' : 'fas fa-info-circle';
+                return `
+                    <div class="fixed top-4 right-4 z-50 p-4 rounded-xl shadow-2xl text-white ${bgColor} transition-all duration-300 transform animate-in fade-in-0 slide-in-from-right-2">
+                        <i class="${icon} mr-2"></i>
+                        <span class="font-medium">${message}</span>
+                    </div>
+                `;
+            },
+            
+            renderShell: (content, currentUser, userMetadata) => {
+                const currentEmail = currentUser ? currentUser.email : 'ผู้เยี่ยมชม';
+                const isAdmin = userMetadata.isAdmin;
+                const isApproved = userMetadata.isApproved;
+                const isAuthenticated = currentUser && !currentUser.isAnonymous;
+                
+                let authStatus = '';
+                if (isAdmin) {
+                    authStatus = `<span class="text-red-600 font-bold">(ผู้ดูแลระบบ)</span>`;
+                } else if (isApproved) {
+                    authStatus = `<span class="text-green-600 font-bold">(อนุมัติแล้ว)</span>`;
+                } else if (isAuthenticated) {
+                    authStatus = `<span class="text-yellow-600 font-bold">(รออนุมัติ)</span>`;
+                } else {
+                    authStatus = `<span class="text-gray-500 font-bold">(สาธารณะ)</span>`;
+                }
+
+                return `
+                    <div class="min-h-screen bg-gray-50 font-inter flex flex-col">
+                        <!-- Navigation/Header -->
+                        <header class="bg-white shadow-lg p-4 sticky top-0 z-20">
+                            <div class="max-w-7xl mx-auto flex justify-between items-center">
+                                <div class="flex items-center">
+                                    <img src="https://img5.pic.in.th/file/secure-sv1/IMG_25650953161d1c1bbdd8.jpeg" onerror="this.onerror=null;this.src='https://placehold.co/60x60/007bff/ffffff?text=SPT';" alt="[attachment_0](attachment)" class="h-14 w-14 rounded-full mr-3 border-4 border-blue-50 shadow-md">
+                                    <h1 class="text-xl md:text-2xl font-extrabold text-gray-800">
+                                        SPT <span class="text-blue-600">Moral URL</span>
+                                    </h1>
+                                </div>
+                                
+                                <nav class="flex items-center space-x-2 md:space-x-4 text-sm md:text-base">
+                                    ${isAuthenticated ? `
+                                        <button onclick="window.location.hash='public'; window.App.updateView()" 
+                                                class="p-2 rounded-xl transition duration-300 hover:bg-blue-100 hover:text-blue-700 text-gray-600 font-medium">
+                                            <i class="fas fa-globe mr-1"></i> ลิงก์สาธารณะ
+                                        </button>
+                                        <button onclick="window.location.hash=''; window.App.updateView()" 
+                                                class="p-2 rounded-xl transition duration-300 hover:bg-blue-100 hover:text-blue-700 text-gray-600 font-medium">
+                                            <i class="fas fa-home mr-1"></i> แดชบอร์ด
+                                        </button>
+                                        <button onclick="window.App.handleLogout()" 
+                                                class="bg-red-500 text-white px-3 py-2 rounded-xl shadow-lg hover:bg-red-600 transition duration-300 text-sm font-semibold">
+                                            <i class="fas fa-sign-out-alt"></i> ออกจากระบบ
+                                        </button>
+                                    ` : `
+                                        <button onclick="window.location.hash=''; window.App.updateView()" 
+                                                class="bg-blue-600 text-white px-3 py-2 rounded-xl shadow-lg shadow-blue-500/50 hover:bg-blue-700 transition duration-300 text-sm font-semibold">
+                                            <i class="fas fa-sign-in-alt"></i> เข้าสู่ระบบ
+                                        </button>
+                                    `}
+                                </nav>
+                            </div>
+                        </header>
+
+                        <!-- User Status Bar -->
+                        ${isAuthenticated ? `
+                            <div class="bg-blue-50 p-3 text-center text-sm font-medium shadow-inner border-b border-blue-100">
+                                สถานะ: ${currentEmail} ${authStatus}
+                                ${!isApproved && !isAdmin ? '<span class="ml-4 text-sm text-red-500 font-semibold"><i class="fas fa-lock"></i> บัญชีนี้อยู่ระหว่างรอผู้ดูแลระบบอนุมัติ</span>' : ''}
+                            </div>
+                        ` : ''}
+
+                        <!-- Main Content -->
+                        <main class="flex-grow p-4 md:p-10 max-w-7xl mx-auto w-full">
+                            ${content}
+                        </main>
+
+                        <!-- Footer -->
+                        <footer class="bg-gray-800 text-white p-4 text-center text-xs md:text-sm">
+                            <p>©️ 2024 SPT MORAL SCHOOL - โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง | All Rights Reserved</p>
+                            <p class="mt-1 text-gray-400">พัฒนาโดย SPT IT & Moral Team | Base URL: ${baseShortUrl}</p>
+                        </footer>
+                        
+                        <!-- Modal Container -->
+                        <div id="modal-container"></div>
+                    </div>
+                `;
+            },
+            
+            // --- AUTH VIEW & LOGIC ---
+            
+            handleLoginSubmit: async (isRegister) => {
+                const email = document.getElementById('auth-email').value.trim();
+                const password = document.getElementById('auth-password').value.trim();
+                const fullName = document.getElementById('auth-fullname') ? document.getElementById('auth-fullname').value.trim() : null;
+                const studentId = document.getElementById('auth-studentid') ? document.getElementById('auth-studentid').value.trim() : null;
+
+                if (!email || !password || (isRegister && (!fullName || !studentId))) {
+                    window.App.showMessage('กรุณากรอกข้อมูลให้ครบถ้วน', 'error');
+                    return;
+                }
+
+                try {
+                    if (isRegister) {
+                        const userCredential = await createUserWithEmailAndPassword(window.auth, email, password);
+                        const user = userCredential.user;
+                        
+                        // Set user metadata with approved: false for registration
+                        const docRef = doc(window.App.getUserMetadataCollectionRef(), user.uid);
+                        await setDoc(docRef, { 
+                            email: email, 
+                            fullName: fullName,
+                            studentId: studentId,
+                            role: 'user', 
+                            approved: false, 
+                            createdAt: serverTimestamp() 
+                        }, { merge: true });
+                        
+                        window.App.showMessage('ลงทะเบียนสำเร็จ! โปรดรอผู้ดูแลระบบอนุมัติบัญชี', 'info');
+                    } else {
+                        await signInWithEmailAndPassword(window.auth, email, password);
+                    }
+                } catch (error) {
+                    let message = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ/ลงทะเบียน';
+                    if (error.code === 'auth/email-already-in-use') {
+                        message = 'อีเมลนี้ถูกใช้แล้ว ลองเข้าสู่ระบบ';
+                    } else if (error.code === 'auth/invalid-email' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                        message = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
+                    } else if (error.code === 'auth/weak-password') {
+                        message = 'รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร';
+                    }
+                    window.App.showMessage(message, 'error');
+                    console.error("Auth Error:", error);
+                }
+            },
+            
+            handleLogout: async () => {
+                try {
+                    await signOut(window.auth);
+                    window.App.showMessage('ออกจากระบบสำเร็จ', 'info');
+                    window.location.hash = '';
+                } catch (error) {
+                    window.App.showMessage('เกิดข้อผิดพลาดในการออกจากระบบ', 'error');
+                }
+            },
+
+            toggleAuthMode: () => {
+                const container = document.getElementById('auth-container');
+                const isRegisterMode = container.dataset.mode === 'register';
+                container.dataset.mode = isRegisterMode ? 'login' : 'register';
+                window.App.renderLoginView(true); // Re-render to show/hide fields
+            },
+            
+            renderLoginView: (isReRender = false) => {
+                const { currentUser, userMetadata } = window.App.state;
+                const isPending = currentUser && !currentUser.isAnonymous && !userMetadata.isApproved;
+                
+                let container = document.getElementById('auth-container');
+                if (!container || isReRender) {
+                    const mode = container ? container.dataset.mode : 'login';
+
+                    if (isPending) {
+                        return `
+                            <div class="max-w-md mx-auto p-8 bg-white rounded-3xl shadow-2xl mt-10 text-center animate-in fade-in zoom-in-50">
+                                <i class="fas fa-hourglass-half text-6xl text-yellow-500 mb-4 animate-pulse"></i>
+                                <h2 class="text-3xl font-bold text-gray-800 mb-4">รอการอนุมัติบัญชี</h2>
+                                <p class="text-gray-600 mb-6">บัญชีของคุณ (${currentUser.email}) อยู่ระหว่างรอการอนุมัติจากผู้ดูแลระบบ</p>
+                                <p class="text-sm text-gray-500">คุณสามารถออกจากระบบ หรือรอการอนุมัติจากผู้ดูแลระบบ</p>
+                                <button onclick="window.App.handleLogout()" class="mt-6 w-full bg-red-500 text-white p-3 rounded-xl shadow-lg hover:bg-red-600 transition duration-300 font-semibold">
+                                    <i class="fas fa-sign-out-alt"></i> ออกจากระบบ
+                                </button>
+                            </div>
+                        `;
+                    }
+                    
+                    const isRegisterMode = mode === 'register';
+                    
+                    const html = `
+                        <div id="auth-container" data-mode="${mode}" class="max-w-md mx-auto p-8 bg-white rounded-3xl shadow-2xl mt-10 transition-all duration-500 animate-in fade-in zoom-in-50">
+                            <h2 class="text-3xl font-extrabold text-center text-gray-800 mb-6">${isRegisterMode ? 'ลงทะเบียนบัญชีใหม่' : 'เข้าสู่ระบบ'}</h2>
+                            
+                            ${isRegisterMode ? `
+                                <input id="auth-fullname" type="text" placeholder="ชื่อ-นามสกุล (สำหรับผู้ดูแลระบบอนุมัติ)" required 
+                                    class="w-full p-3 mb-4 border border-gray-300 rounded-xl focus:ring-blue-500 focus:border-blue-500 transition duration-300 shadow-sm">
+                                <input id="auth-studentid" type="text" placeholder="เลขประจำตัวนักเรียน/บุคลากร" required 
+                                    class="w-full p-3 mb-4 border border-gray-300 rounded-xl focus:ring-blue-500 focus:border-blue-500 transition duration-300 shadow-sm">
+                            ` : ''}
+
+                            <input id="auth-email" type="email" placeholder="อีเมล (เช่น: user@spt.ac.th)" required 
+                                class="w-full p-3 mb-4 border border-gray-300 rounded-xl focus:ring-blue-500 focus:border-blue-500 transition duration-300 shadow-sm">
+                            <input id="auth-password" type="password" placeholder="รหัสผ่าน (6 ตัวอักษรขึ้นไป)" required 
+                                class="w-full p-3 mb-6 border border-gray-300 rounded-xl focus:ring-blue-500 focus:border-blue-500 transition duration-300 shadow-sm">
+                            
+                            <button onclick="window.App.handleLoginSubmit(${isRegisterMode})" 
+                                    class="w-full bg-blue-600 text-white p-3 rounded-xl shadow-lg shadow-blue-500/50 hover:bg-blue-700 transition duration-300 font-bold mb-4 transform hover:scale-[1.02]">
+                                <i class="fas ${isRegisterMode ? 'fa-user-plus' : 'fa-sign-in-alt'}"></i> ${isRegisterMode ? 'ยืนยันการลงทะเบียน' : 'เข้าสู่ระบบ'}
+                            </button>
+
+                            <p class="text-center text-sm text-gray-500">
+                                ${isRegisterMode ? 'มีบัญชีอยู่แล้ว?' : 'ยังไม่มีบัญชี?'} 
+                                <a href="#" onclick="window.App.toggleAuthMode()" class="text-blue-600 hover:text-blue-800 font-semibold transition duration-300">
+                                    ${isRegisterMode ? 'เข้าสู่ระบบ' : 'ลงทะเบียนที่นี่'}
+                                </a>
+                            </p>
+                            ${isRegisterMode ? '<p class="text-center text-xs text-red-500 mt-2">หมายเหตุ: บัญชีใหม่ต้องรอผู้ดูแลระบบอนุมัติก่อนจึงจะใช้งานได้</p>' : ''}
+                        </div>
+                    `;
+                    
+                    if (isReRender) {
+                        document.getElementById('root').querySelector('main').innerHTML = html;
+                    } else {
+                        return html;
+                    }
+                }
+            },
+
+            // --- ADMIN LINK & USER MANAGEMENT ACTIONS ---
+
+            handleUpdateLink: async (linkId, currentCode) => {
+                const link = window.App.state.allLinks.find(l => l.id === linkId);
+                if (!link) return window.App.showMessage('ไม่พบลิงก์', 'error');
+
+                const newLongUrl = prompt(`แก้ไข URL ต้นฉบับสำหรับ /#${currentCode}`, link.longUrl);
+                if (!newLongUrl) return; 
+
+                const newIsPublic = confirm(`ต้องการให้ลิงก์นี้เป็นสาธารณะหรือไม่?\n\n- ตกลง (OK) = สาธารณะ\n- ยกเลิก (Cancel) = ส่วนตัว\n\nสถานะปัจจุบัน: ${link.isPublic ? 'สาธารณะ' : 'ส่วนตัว'}`);
+                
+                try {
+                    const linkRef = doc(window.App.getLinkCollectionRef(), linkId);
+                    await updateDoc(linkRef, { longUrl: newLongUrl, isPublic: newIsPublic });
+                    window.App.showMessage('อัปเดตลิงก์สำเร็จ!', 'info');
+                } catch (e) {
+                    console.error("Error updating link:", e);
+                    window.App.showMessage('เกิดข้อผิดพลาดในการอัปเดตลิงก์', 'error');
+                }
+            },
+            
+            handleApproveUser: async (uid, email) => {
+                if (!confirm(`ยืนยันการอนุมัติผู้ใช้ ${email} ใช่หรือไม่?`)) return;
+                try {
+                    const userRef = doc(window.App.getUserMetadataCollectionRef(), uid);
+                    await updateDoc(userRef, { approved: true, role: 'user' });
+                    window.App.showMessage(`อนุมัติผู้ใช้ ${email} สำเร็จ`, 'info');
+                } catch (e) {
+                    console.error("Error approving user:", e);
+                    window.App.showMessage('เกิดข้อผิดพลาดในการอนุมัติผู้ใช้', 'error');
+                }
+            },
+
+            handleDisapproveUser: async (uid, email) => {
+                if (!confirm(`ยืนยันการระงับ/ยกเลิกการอนุมัติผู้ใช้ ${email} ใช่หรือไม่?`)) return;
+                try {
+                    const userRef = doc(window.App.getUserMetadataCollectionRef(), uid);
+                    await updateDoc(userRef, { approved: false, role: 'user' });
+                    window.App.showMessage(`ระงับผู้ใช้ ${email} สำเร็จ`, 'info');
+                } catch (e) {
+                    console.error("Error disapproving user:", e);
+                    window.App.showMessage('เกิดข้อผิดพลาดในการระงับผู้ใช้', 'error');
+                }
+            },
+
+            handleDeleteUser: async (uid, email) => {
+                if (!confirm(`คำเตือน: การลบบัญชีผู้ใช้นี้ (${email}) จะทำให้ผู้ใช้ไม่สามารถเข้าสู่ระบบได้อีก\n\nคุณแน่ใจหรือไม่ที่จะลบบัญชีนี้?`)) return;
+                try {
+                    // Note: Cannot delete the actual Auth user via Firestore SDK in the client, 
+                    // but we remove their metadata to block access.
+                    await deleteDoc(doc(window.App.getUserMetadataCollectionRef(), uid));
+                    window.App.showMessage(`ลบบัญชีผู้ใช้ ${email} สำเร็จ`, 'info');
+                } catch (e) {
+                    console.error("Error deleting user metadata:", e);
+                    window.App.showMessage('เกิดข้อผิดพลาดในการลบบัญชี', 'error');
+                }
+            },
+
+            // --- DASHBOARD VIEW ---
+            
+            renderDashboard: (userLinks, isAdmin, allUsers, allLinks) => {
+                const renderLinkForm = () => `
+                    <div class="bg-white p-6 md:p-8 rounded-3xl shadow-2xl border border-blue-100 mb-10 transform hover:shadow-blue-300/30 transition duration-500">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-magic text-blue-500 mr-2"></i> สร้างลิงก์ย่อใหม่
+                        </h2>
+                        
+                        <label for="input-long-url" class="block text-sm font-semibold text-gray-700 mb-1">URL ต้นฉบับ</label>
+                        <input id="input-long-url" type="url" placeholder="เช่น: https://docs.google.com/..." required 
+                               class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-blue-500 focus:border-blue-500 transition duration-300 mb-4 shadow-inner">
+                        
+                        <label for="input-short-code" class="block text-sm font-semibold text-gray-700 mb-1">รหัสย่อที่กำหนดเอง (ไม่บังคับ: ระบบจะสุ่มให้)</label>
+                        <div class="flex items-center mb-6">
+                            <span class="text-gray-500 p-3 bg-gray-100 rounded-l-xl border-t-2 border-b-2 border-l-2 border-gray-200">${baseShortUrl}</span>
+                            <input id="input-short-code" type="text" placeholder="เช่น: spt-link" 
+                                class="flex-grow p-3 border-2 border-gray-200 rounded-r-xl focus:ring-blue-500 focus:border-blue-500 transition duration-300 shadow-inner">
+                        </div>
+                        
+                        <div class="flex items-center justify-between mt-4 mb-6 p-4 bg-blue-50 rounded-2xl border border-blue-200 shadow-inner">
+                            <label for="input-is-public" class="text-base font-semibold text-gray-700 flex items-center cursor-pointer">
+                                <span class="text-lg mr-3 text-blue-600"><i class="fas fa-globe-americas"></i></span>
+                                แสดงผลสาธารณะบนกระดานลิงก์หรือไม่?
+                            </label>
+                            <input id="input-is-public" type="checkbox" checked
+                                class="h-6 w-6 text-blue-600 rounded border-gray-300 focus:ring-blue-500 transition duration-300 transform scale-125">
+                        </div>
+                        
+                        <button onclick="window.App.handleCreateLink()" 
+                                class="w-full bg-blue-600 text-white p-3 rounded-xl shadow-lg shadow-blue-500/50 hover:bg-blue-700 transition duration-300 font-bold transform hover:scale-[1.01]">
+                            <i class="fas fa-paper-plane"></i> สร้างลิงก์ย่อใหม่
+                        </button>
+                    </div>
+                `;
+
+                const renderUserLinksTable = (links) => `
+                    <div class="bg-white p-6 md:p-8 rounded-3xl shadow-2xl border border-gray-100 mt-8">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-list-ul text-blue-500 mr-2"></i> ลิงก์ย่อที่คุณสร้าง (${links.length} รายการ)
+                        </h2>
+                        
+                        ${links.length === 0 ? `
+                            <div class="text-center p-8 text-gray-500 bg-gray-50 rounded-xl">
+                                <i class="fas fa-link text-4xl mb-3"></i>
+                                <p>คุณยังไม่ได้สร้างลิงก์ย่อใดๆ</p>
+                            </div>
+                        ` : `
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead>
+                                        <tr class="text-left text-xs font-bold uppercase tracking-wider text-gray-600 bg-gray-50">
+                                            <th class="p-3 rounded-tl-xl">รหัสย่อ</th>
+                                            <th class="p-3">URL ต้นฉบับ</th>
+                                            <th class="p-3 text-center">สาธารณะ</th>
+                                            <th class="p-3 rounded-tr-xl text-center">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100">
+                                        ${links.map(link => `
+                                            <tr class="hover:bg-blue-50 transition duration-150 text-sm">
+                                                <td class="p-3 font-medium text-blue-600 break-all flex items-center">
+                                                    <a href="${baseShortUrl}${link.shortCode}" target="_blank" class="hover:underline">${link.shortCode}</a>
+                                                    <button onclick="window.App.copyToClipboard('${baseShortUrl}${link.shortCode}')" class="ml-2 text-gray-400 hover:text-blue-500 transition duration-200 transform hover:scale-125">
+                                                        <i class="fas fa-copy text-xs"></i>
+                                                    </button>
+                                                </td>
+                                                <td class="p-3 text-gray-600 max-w-xs overflow-hidden truncate" title="${link.longUrl}">${link.longUrl}</td>
+                                                <td class="p-3 text-center">
+                                                    ${link.isPublic ? '<span class="text-green-500"><i class="fas fa-check-circle"></i> ใช่</span>' : '<span class="text-red-500"><i class="fas fa-times-circle"></i> ไม่</span>'}
+                                                </td>
+                                                <td class="p-3 text-center flex justify-center space-x-2">
+                                                    <button onclick="window.App.handleUpdateLink('${link.id}', '${link.shortCode}')" 
+                                                            class="text-blue-500 hover:text-blue-700 p-2 rounded-full transition duration-300 transform hover:scale-110" title="แก้ไข">
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                    <button onclick="window.App.handleDeleteLink('${link.id}', '${link.shortCode}')" 
+                                                            class="text-red-500 hover:text-red-700 p-2 rounded-full transition duration-300 transform hover:scale-110" title="ลบ">
+                                                        <i class="fas fa-trash-alt"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        `}
+                    </div>
+                `;
+                
+                const renderAdminPanel = (allUsers, allLinks) => {
+                    const pendingUsers = allUsers.filter(u => u.approved === false);
+                    
+                    const renderUserManagement = () => `
+                        <h3 class="text-xl font-bold text-red-700 mb-3 border-b-2 border-red-200 pb-2">
+                            <i class="fas fa-users-cog mr-2"></i> จัดการผู้ใช้งาน (${allUsers.length} คน)
+                        </h3>
+                        <div class="mb-6">
+                            <h4 class="text-lg font-semibold text-red-600 mb-2">ผู้ใช้ที่รอการอนุมัติ (${pendingUsers.length} รายการ)</h4>
+                            <div class="space-y-3 p-3 bg-red-100 rounded-xl">
+                                ${pendingUsers.length === 0 ? `
+                                    <p class="text-sm text-red-500 text-center">ไม่มีผู้ใช้ที่รอการอนุมัติ</p>
+                                ` : pendingUsers.map(user => `
+                                    <div class="flex justify-between items-center p-3 bg-white rounded-xl shadow-md border border-red-200">
+                                        <div>
+                                            <span class="font-medium text-gray-800 block">${user.fullName || user.email}</span>
+                                            <span class="text-xs text-gray-500">ID: ${user.studentId || 'N/A'}</span>
+                                        </div>
+                                        <button onclick="window.App.handleApproveUser('${user.uid}', '${user.email}')" 
+                                                class="bg-green-500 text-white px-3 py-1 rounded-xl shadow-lg hover:bg-green-600 transition duration-300 text-sm font-semibold">
+                                            <i class="fas fa-user-check"></i> อนุมัติ
+                                        </button>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <h4 class="text-lg font-semibold text-red-600 mb-2">จัดการผู้ใช้ทั้งหมด</h4>
+                        <div class="overflow-x-auto p-3 bg-red-50 rounded-xl">
+                            <table class="min-w-full divide-y divide-red-200">
+                                <thead>
+                                    <tr class="text-left text-xs font-bold uppercase tracking-wider text-red-600">
+                                        <th class="p-2">ชื่อ/อีเมล</th>
+                                        <th class="p-2 text-center">สถานะ</th>
+                                        <th class="p-2 text-center">จัดการ</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-red-100">
+                                    ${allUsers.map(user => `
+                                        <tr class="hover:bg-red-100 transition duration-150 text-sm">
+                                            <td class="p-2 text-gray-800">
+                                                <span class="font-medium block">${user.fullName || user.email}</span>
+                                                <span class="text-xs text-gray-500">${user.email}</span>
+                                            </td>
+                                            <td class="p-2 text-center">
+                                                ${user.approved ? '<span class="text-green-600 font-semibold">อนุมัติ</span>' : '<span class="text-yellow-600 font-semibold">รออนุมัติ</span>'}
+                                            </td>
+                                            <td class="p-2 text-center space-x-2">
+                                                <button onclick="window.App.handleDisapproveUser('${user.uid}', '${user.email}')" 
+                                                        class="text-yellow-600 hover:text-yellow-800 p-1 transform hover:scale-110" title="ระงับ">
+                                                    <i class="fas fa-ban"></i>
+                                                </button>
+                                                <button onclick="window.App.handleDeleteUser('${user.uid}', '${user.email}')" 
+                                                        class="text-red-500 hover:text-red-700 p-1 transform hover:scale-110" title="ลบถาวร">
+                                                    <i class="fas fa-trash-alt"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+
+                    const renderLinkManagement = () => `
+                        <h3 class="text-xl font-bold text-red-700 mb-3 border-b-2 border-red-200 pb-2 mt-8">
+                            <i class="fas fa-link mr-2"></i> จัดการลิงก์ทั้งหมด (${allLinks.length} รายการ)
+                        </h3>
+                        <div class="overflow-x-auto p-3 bg-red-50 rounded-xl">
+                            <table class="min-w-full divide-y divide-red-200">
+                                <thead>
+                                    <tr class="text-left text-xs font-bold uppercase tracking-wider text-red-600">
+                                        <th class="p-2">รหัสย่อ</th>
+                                        <th class="p-2">ผู้สร้าง</th>
+                                        <th class="p-2 text-center">สาธารณะ</th>
+                                        <th class="p-2 text-center">จัดการ</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-red-100">
+                                    ${allLinks.map(link => `
+                                        <tr class="hover:bg-red-100 transition duration-150 text-sm">
+                                            <td class="p-2 text-blue-600 font-medium break-all"><a href="${baseShortUrl}${link.shortCode}" target="_blank">${link.shortCode}</a></td>
+                                            <td class="p-2 text-gray-700 max-w-[100px] truncate" title="${link.creatorEmail}">${link.creatorEmail}</td>
+                                            <td class="p-2 text-center">
+                                                ${link.isPublic ? '<span class="text-green-600 font-semibold">ใช่</span>' : '<span class="text-gray-500">ไม่</span>'}
+                                            </td>
+                                            <td class="p-2 text-center space-x-2">
+                                                <button onclick="window.App.handleUpdateLink('${link.id}', '${link.shortCode}')" 
+                                                        class="text-blue-500 hover:text-blue-700 p-1 transform hover:scale-110" title="แก้ไข">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <button onclick="window.App.handleDeleteLink('${link.id}', '${link.shortCode}')" 
+                                                        class="text-red-500 hover:text-red-700 p-1 transform hover:scale-110" title="ลบ">
+                                                    <i class="fas fa-trash-alt"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+
+                    return `
+                        <div class="bg-red-50 p-6 md:p-8 rounded-3xl shadow-2xl border-t-4 border-red-500 mt-8 mb-10 transform hover:shadow-red-300/30 transition duration-500">
+                            <h2 class="text-3xl font-extrabold text-red-800 mb-6 flex items-center">
+                                <i class="fas fa-toolbox text-red-500 mr-3"></i> แผงควบคุมผู้ดูแลระบบ
+                            </h2>
+                            ${renderUserManagement()}
+                            ${renderLinkManagement()}
+                        </div>
+                    `;
+                };
+
+                return `
+                    ${isAdmin ? renderAdminPanel(allUsers, allLinks.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds)) : ''}
+                    ${renderLinkForm()}
+                    ${renderUserLinksTable(userLinks.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds))}
+                `;
+            },
+
+            // --- PUBLIC DASHBOARD VIEW ---
+            
+            renderPublicDashboard: (links) => {
+                const sortedLinks = links.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds);
+
+                return `
+                    <div class="p-4 md:p-8 bg-white rounded-3xl shadow-2xl mt-4 border-t-4 border-blue-500 transform hover:shadow-blue-300/30 transition duration-500">
+                        <h2 class="text-3xl font-extrabold text-gray-800 mb-6 flex items-center">
+                            <i class="fas fa-broadcast-tower text-blue-500 mr-3 animate-pulse"></i> 
+                            กระดานลิงก์สาธารณะ
+                        </h2>
+                        <p class="text-gray-600 mb-8 p-3 bg-blue-50 rounded-xl border border-blue-200 shadow-inner">รวมลิงก์ที่เผยแพร่โดยบุคลากรโรงเรียนสตรีพัทลุง (ต้องเข้าสู่ระบบจึงจะเข้าดูได้)</p>
+                        
+                        ${sortedLinks.length === 0 ? `
+                            <div class="text-center p-10 text-gray-500 bg-gray-50 rounded-xl">
+                                <i class="fas fa-exclamation-circle text-4xl mb-3"></i>
+                                <p>ไม่พบลิงก์สาธารณะในระบบ</p>
+                            </div>
+                        ` : `
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                ${sortedLinks.map(link => `
+                                    <div class="bg-gray-50 p-6 rounded-2xl shadow-lg border border-gray-200 hover:shadow-xl hover:translate-y-[-2px] transition duration-300">
+                                        <div class="flex justify-between items-center mb-3">
+                                            <span class="text-xs font-bold uppercase text-blue-600 p-1 px-2 bg-blue-100 rounded-full">${link.creatorEmail.split('@')[0]}</span>
+                                            <span class="text-xs text-gray-400">${new Date(link.createdAt.seconds * 1000).toLocaleDateString('th-TH')}</span>
+                                        </div>
+                                        <h3 class="text-xl font-extrabold text-blue-700 mb-2 break-all">
+                                            <a href="${baseShortUrl}${link.shortCode}" target="_blank" class="hover:underline">${link.shortCode}</a>
+                                            <button onclick="window.App.copyToClipboard('${baseShortUrl}${link.shortCode}')" class="ml-2 text-gray-400 hover:text-blue-500 transition duration-200 transform hover:scale-125" title="คัดลอก">
+                                                <i class="fas fa-copy text-sm"></i>
+                                            </button>
+                                        </h3>
+                                        <p class="text-sm text-gray-700 max-h-12 overflow-hidden truncate mb-4" title="${link.longUrl}">${link.longUrl}</p>
+                                        <a href="${baseShortUrl}${link.shortCode}" target="_blank"
+                                            class="inline-block bg-blue-600 text-white px-4 py-2 rounded-xl text-sm hover:bg-blue-700 transition duration-300 shadow-md font-semibold transform hover:scale-[1.05]">
+                                            <i class="fas fa-external-link-alt mr-1"></i> เข้าชมลิงก์
+                                        </a>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                `;
+            }
+        };
+
+        // --- Event Listeners and Initial Load ---
+        window.addEventListener('hashchange', window.App.updateView);
+        window.addEventListener('load', window.App.init);
+    </script>
+    <style>
+        /* Custom styles for modern aesthetic and Inter font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .rounded-3xl {
+            border-radius: 2rem;
+        }
+        .rounded-2xl {
+            border-radius: 1.5rem;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f8fafc;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #93c5fd;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #60a5fa;
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <!-- Content will be rendered here by JavaScript -->
+    </div>
+</body>
+</html>
+
