@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPT Moral School URL Shortener</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter Font -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+Thai:wght@100..900&display=swap');
+        body {
+            font-family: 'Noto Sans Thai', 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 4px;
+        }
+        /* Style for the button hover effect */
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .link-item:hover {
+            background-color: #f0f4f8;
+        }
+        .main-card {
+            min-height: 80vh;
+        }
+
+        /* --- NEW: Standard Tailwind spin animation is used for the icon --- */
+        
+        /* --- Class to control the fade-in of the main content --- */
+        .app-hidden {
+            opacity: 0;
+            /* Prevents interaction while hidden */
+            pointer-events: none; 
+            transition: opacity 0.5s ease-in-out;
+        }
+    </style>
+</head>
+<body class="overflow-x-hidden">
+
+    <!-- 
+        NEW: Global Loading Overlay - Enhanced Design for Redirection
+        - Uses backdrop-blur for a modern effect.
+        - Loader card has thicker border and shadow for focus.
+    -->
+    <div id="global-loader" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-50/90 backdrop-blur-sm transition-opacity duration-500">
+        <!-- Loader Content Card (Enhanced Look) -->
+        <div class="text-center p-8 bg-white rounded-3xl shadow-2xl border-4 border-blue-300">
+            
+            <!-- Icon/Spinner: Rotating Chain Icon (Symbolizing Link/Redirection) -->
+            <div id="loader-icon-container">
+                <svg id="loader-icon" class="mx-auto h-16 w-16 text-blue-600 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <!-- Path for Chain/Link Icon -->
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.253 4.253a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.333 1.757l-1.757 1.757a4.5 4.5 0 01-6.364 6.364l-4.253-4.253a4.5 4.5 0 011.242-7.244" />
+                </svg>
+            </div>
+            
+            <!-- Status Message (Bold for visibility) -->
+            <p id="loader-status" class="mt-4 text-xl font-bold text-gray-800">กำลังโหลดระบบ SPT Link...</p>
+        </div>
+    </div>
+
+
+    <!-- Main Container - Initially hidden to prevent FOUC -->
+    <div id="main-container" class="max-w-4xl mx-auto p-4 md:p-8 app-hidden">
+
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <div class="flex items-center justify-center space-x-3 mb-4">
+                <!-- โลโก้โรงเรียนสตรีพัทลุง -->
+                <img src="https://img5.pic.in.th/file/secure-sv1/IMG_25650953161d1c1bbdd8.jpeg" onerror="this.onerror=null;this.src='https://placehold.co/100x100/333333/FFFFFF?text=Logo';" alt="โลโก้โรงเรียนสตรีพัทลุง" class="w-20 h-20 rounded-full shadow-lg border-4 border-white">
+                <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800">SPT Moral Link</h1>
+            </div>
+            <p class="text-xl md:text-2xl font-light text-gray-600">
+                ระบบย่อ URL โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง
+            </p>
+        </header>
+
+        <!-- Main Content Card -->
+        <main id="app-container" class="bg-white p-6 md:p-10 rounded-3xl shadow-2xl main-card transition-all duration-300">
+
+            <!-- Current User Info -->
+            <div class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-700">
+                <p><strong>รหัสผู้ใช้ (User ID):</strong> <span id="user-id">... (กำลังโหลด) ...</span></p>
+                <p class="mt-1 text-red-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.332 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    โปรดทราบ: ลิงก์ที่ย่อทั้งหมดเป็นแบบสาธารณะ
+                </p>
+            </div>
+
+
+            <!-- URL Shortener Form -->
+            <div id="main-form" class="mb-10 space-y-4">
+                <label for="long-url" class="block text-lg font-medium text-gray-700">ลิงก์ต้นฉบับ (Long URL)</label>
+                <input type="url" id="long-url" placeholder="https://www.your-very-long-link.com/..."
+                       class="w-full p-4 border border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition duration-150" required>
+                
+                <button id="shorten-button"
+                        class="btn-primary w-full bg-blue-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-blue-700 active:bg-blue-800 transition duration-200 ease-in-out">
+                    ย่อลิงก์
+                </button>
+            </div>
+
+            <!-- Generated Short Link Output -->
+            <div id="output-section" class="mb-10 p-6 bg-gray-50 border border-dashed border-gray-300 rounded-xl hidden">
+                <p class="text-sm font-semibold text-green-600 mb-2">ลิงก์ย่อสำเร็จแล้ว!</p>
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-3">
+                    <p id="short-url-display" class="flex-grow p-3 bg-white border border-green-300 rounded-lg text-lg text-blue-700 overflow-x-auto whitespace-nowrap scrollbar-thin"></p>
+                    <button id="copy-button"
+                            class="bg-green-500 text-white font-medium py-3 px-5 rounded-lg shadow-md hover:bg-green-600 active:bg-green-700 transition duration-150 flex-shrink-0">
+                        คัดลอก
+                    </button>
+                </div>
+            </div>
+
+            <!-- History Section -->
+            <h2 class="text-2xl font-bold text-gray-800 border-b pb-2 mb-4">ประวัติการย่อลิงก์</h2>
+            <div id="links-list" class="space-y-3">
+                <!-- Links will be injected here by JS -->
+                <p id="no-links-message" class="text-gray-500 text-center py-4 hidden">ยังไม่มีลิงก์ย่อในระบบ</p>
+            </div>
+            
+            <!-- Redirection message (hidden by default) -->
+            <div id="redirect-message" class="text-center p-6 bg-yellow-50 rounded-xl border border-yellow-200 hidden">
+                <p class="text-lg font-semibold text-yellow-800">กำลังเปลี่ยนเส้นทาง...</p>
+                <p class="text-sm text-yellow-700 mt-2">โปรดรอสักครู่ ระบบกำลังค้นหาลิงก์ต้นฉบับ</p>
+            </div>
+
+        </main>
+
+        <!-- Footer -->
+        <footer class="text-center mt-8 py-4 text-sm text-gray-500">
+            <p class="tracking-wider">
+                &copy; 2024 SPT MORAL SCHOOL - โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง | All Rights Reserved
+            </p>
+        </footer>
+
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, serverTimestamp, setLogLevel, getDocs, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables
+        let app, db, auth, userId;
+        let isAuthReady = false;
+
+        // Constants and Globals
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
+        // Firebase Config from User or Canvas Environment
+        const userProvidedConfig = {
+            apiKey: "AIzaSyCWad0XjB8mymvDDGn8XGTTrGvHCr2-GIk",
+            authDomain: "fir-url-22a9f.firebaseapp.com",
+            projectId: "fir-url-22a9f",
+            storageBucket: "fir-url-22a9f.firebasestorage.app",
+            messagingSenderId: "144462014577",
+            appId: "1:144462014577:web:48b19158a73934754513d0",
+            measurementId: "G-78S4MF8SMX"
+        };
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : userProvidedConfig;
+        
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const COLLECTION_PATH = `artifacts/${appId}/public/data/urls`;
+
+        // Base URL (Uses query parameter for client-side redirection)
+        const BASE_DOMAIN_ROOT = "https://spt-moral-school.github.io/url/"; 
+
+        // DOM Elements
+        const mainContainer = document.getElementById('main-container');
+        const globalLoader = document.getElementById('global-loader');
+        const loaderStatus = document.getElementById('loader-status');
+        const longUrlInput = document.getElementById('long-url');
+        const shortenButton = document.getElementById('shorten-button');
+        const outputSection = document.getElementById('output-section');
+        const shortUrlDisplay = document.getElementById('short-url-display');
+        const linksList = document.getElementById('links-list');
+        const noLinksMessage = document.getElementById('no-links-message');
+        const userIdSpan = document.getElementById('user-id');
+        const mainForm = document.getElementById('main-form');
+        const redirectMessage = document.getElementById('redirect-message');
+        
+        // --- Utility Functions ---
+
+        // NEW: Function to hide the global loader and show main content
+        function hideLoader() {
+            globalLoader.style.opacity = '0';
+            globalLoader.style.pointerEvents = 'none'; // Disable interactions
+            mainContainer.classList.remove('app-hidden');
+        }
+
+        // NEW: Function to update loader status message (used for redirection/errors)
+        function updateLoaderStatus(text, isError = false) {
+             loaderStatus.textContent = text;
+             if (isError) {
+                 loaderStatus.classList.add('text-red-600');
+                 loaderStatus.classList.remove('text-gray-800');
+             } else {
+                 loaderStatus.classList.add('text-gray-800');
+                 loaderStatus.classList.remove('text-red-600');
+             }
+        }
+        
+        // Simple ID Generator
+        function generateShortId(length = 6) {
+            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += characters.charAt(Math.floor(Math.random() * characters.length));
+            }
+            return result;
+        }
+
+        // Copy to Clipboard (using execCommand for better iFrame compatibility)
+        function copyToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed'; // Prevents scrolling to the element
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    document.getElementById('copy-button').textContent = 'คัดลอกแล้ว!';
+                    setTimeout(() => document.getElementById('copy-button').textContent = 'คัดลอก', 2000);
+                    // Update all copy button titles in history
+                    document.querySelectorAll('.copy-btn').forEach(btn => btn.title = 'คัดลอกแล้ว!');
+                    setTimeout(() => document.querySelectorAll('.copy-btn').forEach(btn => btn.title = 'คัดลอกลิงก์ย่อ'), 2000);
+                } else {
+                    showMessage('ไม่สามารถคัดลอกได้: โปรดคัดลอกด้วยตนเอง', 'red');
+                }
+            } catch (err) {
+                showMessage('ไม่สามารถคัดลอกได้: โปรดคัดลอกด้วยตนเอง', 'red');
+            }
+            document.body.removeChild(textarea);
+        }
+
+        // Custom Message Display (Kept for form/interaction feedback)
+        function showMessage(text, color = 'blue') {
+            const messageBar = document.getElementById('status-message-temp');
+            // If the temp message bar doesn't exist, create it below the form
+            if (!messageBar) {
+                const newBar = document.createElement('div');
+                newBar.id = 'status-message-temp';
+                newBar.className = 'text-center text-sm mt-4 p-3 rounded-lg font-medium transition duration-300';
+                mainForm.insertAdjacentElement('afterend', newBar);
+            }
+            const currentBar = document.getElementById('status-message-temp');
+
+            currentBar.textContent = text;
+            currentBar.style.backgroundColor = color === 'red' ? '#fee2e2' : color === 'green' ? '#dcfce7' : '#dbeafe';
+            currentBar.style.color = color === 'red' ? '#dc2626' : color === 'green' ? '#16a34a' : '#2563eb';
+            currentBar.style.display = 'block';
+
+            setTimeout(() => {
+                if(currentBar) currentBar.style.display = 'none';
+            }, 5000);
+        }
+
+        // --- Core Application Logic ---
+        
+        // 0. Redirection Logic (Check URL for ?id= parameter and redirect if found)
+        async function handleRedirection() {
+            const params = new URLSearchParams(window.location.search);
+            const shortId = params.get('id');
+
+            if (shortId && db) {
+                // Show the loader and update status specifically for redirection
+                globalLoader.style.opacity = '1';
+                globalLoader.style.pointerEvents = 'auto';
+                updateLoaderStatus("กำลังเปลี่ยนเส้นทาง... ค้นหาลิงก์ต้นฉบับ", false);
+                
+                // Hide main content elements while attempting redirection
+                mainForm.classList.add('hidden');
+                document.getElementById('output-section').classList.add('hidden');
+                linksList.classList.add('hidden');
+                document.querySelector('h2').classList.add('hidden');
+                redirectMessage.classList.add('hidden'); // Use global loader instead of this local message
+
+                const q = query(collection(db, COLLECTION_PATH), where("shortId", "==", shortId));
+                
+                try {
+                    const querySnapshot = await getDocs(q);
+                    
+                    if (!querySnapshot.empty) {
+                        const docData = querySnapshot.docs[0].data();
+                        const longUrl = docData.longUrl;
+                        
+                        // Clear the query parameter before redirecting
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        
+                        // Perform the redirection
+                        console.log(`Redirecting to: ${longUrl}`);
+                        window.location.replace(longUrl);
+                        return true; // Redirection handled
+                    } else {
+                        // ID not found, clear parameter and show error
+                        updateLoaderStatus("ไม่พบลิงก์ที่ย่อนี้ในระบบ (URL ID: " + shortId + ")", true);
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        // Wait a moment then hide loader and show app
+                        setTimeout(() => hideLoader(), 3000); 
+                    }
+                } catch (error) {
+                    console.error("Redirection fetch failed:", error);
+                    updateLoaderStatus(`เกิดข้อผิดพลาดในการดึงข้อมูลลิงก์: ${error.message}`, true);
+                    // Wait a moment then hide loader and show app
+                    setTimeout(() => hideLoader(), 4000); 
+                }
+                
+                // If redirection was not successful (ID not found or error), restore the app view
+                mainForm.classList.remove('hidden');
+                linksList.classList.remove('hidden');
+                document.querySelector('h2').classList.remove('hidden');
+                return true; // Redirection path attempted (even if it failed to redirect)
+            }
+            return false; // No redirection needed
+        }
+
+
+        // 1. Firebase Initialization and Authentication
+        async function initializeFirebase() {
+            try {
+                setLogLevel('Debug');
+                updateLoaderStatus('กำลังเชื่อมต่อ Firebase และรับรองตัวตน...');
+                
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Sign in using custom token or anonymously
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // Wait for auth state to be ready
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userIdSpan.textContent = userId;
+                        isAuthReady = true;
+                        updateLoaderStatus('การเชื่อมต่อสำเร็จ! กำลังโหลดข้อมูล...');
+                        
+                        // --- IMPORTANT: Check for redirection immediately after auth/db is ready ---
+                        const redirected = await handleRedirection();
+                        if (!redirected) {
+                            setupListeners(); // Only set up the main app if no redirection occurred
+                            setTimeout(() => hideLoader(), 500); // Wait a small moment for smooth transition
+                        }
+                    } else {
+                        userIdSpan.textContent = 'ผู้ใช้ทั่วไป (ไม่ระบุตัวตน)';
+                        isAuthReady = true;
+                        updateLoaderStatus('เกิดข้อผิดพลาดในการรับรองตัวตน', true);
+                        await handleRedirection(); // Still try redirection even if auth fails
+                        setTimeout(() => hideLoader(), 500); // Hide loader if not redirected
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase Initialization Error:", error);
+                updateLoaderStatus(`ข้อผิดพลาดในการเชื่อมต่อ: ${error.message}`, true);
+            }
+        }
+        
+        // 2. Shorten URL Handler
+        async function shortenUrl() {
+            if (!isAuthReady) {
+                showMessage("ระบบยังไม่พร้อมใช้งาน กรุณารอสักครู่", 'red');
+                return;
+            }
+
+            const longUrl = longUrlInput.value.trim();
+            if (!longUrl || !longUrl.startsWith('http')) {
+                showMessage("กรุณาใส่ Long URL ที่ถูกต้อง (เริ่มต้นด้วย http/https)", 'red');
+                return;
+            }
+
+            shortenButton.disabled = true;
+            shortenButton.textContent = 'กำลังย่อลิงก์...';
+            outputSection.classList.add('hidden');
+
+            try {
+                const shortId = generateShortId();
+                // NEW FORMAT: Use query parameter '?id='
+                const shortLink = BASE_DOMAIN_ROOT.endsWith('/') 
+                    ? BASE_DOMAIN_ROOT + '?id=' + shortId 
+                    : BASE_DOMAIN_ROOT + '/?id=' + shortId;
+
+                await addDoc(collection(db, COLLECTION_PATH), {
+                    longUrl: longUrl,
+                    shortId: shortId,
+                    creatorId: userId,
+                    timestamp: serverTimestamp()
+                });
+                
+                // Display the result
+                shortUrlDisplay.textContent = shortLink;
+                outputSection.classList.remove('hidden');
+                longUrlInput.value = ''; // Clear input
+                showMessage("ย่อลิงก์สำเร็จ!", 'green');
+
+            } catch (error) {
+                console.error("Error shortening URL:", error);
+                showMessage(`ย่อลิงก์ไม่สำเร็จ: ${error.message}`, 'red');
+            } finally {
+                shortenButton.disabled = false;
+                shortenButton.textContent = 'ย่อลิงก์';
+            }
+        }
+
+        // 3. Real-time Listener for Links
+        function setupListeners() {
+            if (!db) {
+                console.error("Firestore not initialized.");
+                return;
+            }
+            
+            // Query all links, ordered by creation time
+            const q = query(
+                collection(db, COLLECTION_PATH),
+                orderBy('timestamp', 'desc')
+            );
+
+            onSnapshot(q, (snapshot) => {
+                linksList.innerHTML = ''; // Clear existing list
+                let hasLinks = false;
+                
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    // Generate shortLink based on NEW query parameter format
+                    const shortLink = BASE_DOMAIN_ROOT.endsWith('/') 
+                        ? BASE_DOMAIN_ROOT + '?id=' + data.shortId 
+                        : BASE_DOMAIN_ROOT + '/?id=' + data.shortId;
+                        
+                    const isCreator = data.creatorId === userId;
+                    hasLinks = true;
+
+                    const date = data.timestamp ? new Date(data.timestamp.toDate()).toLocaleString('th-TH') : 'N/A';
+                    
+                    const itemHtml = `
+                        <div class="link-item p-4 bg-white rounded-xl shadow-md border border-gray-100 transition duration-150 flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0">
+                            <div class="flex-grow min-w-0">
+                                <p class="text-xs font-semibold ${isCreator ? 'text-blue-600' : 'text-gray-500'}">
+                                    ${isCreator ? 'คุณสร้าง' : 'สร้างโดย: ' + data.creatorId.substring(0, 8) + '...'} - ${date}
+                                </p>
+                                <p class="block text-sm text-gray-500 truncate mt-0.5" title="${data.longUrl}">
+                                    ${data.longUrl}
+                                </p>
+                            </div>
+                            <div class="md:ml-4 flex-shrink-0 flex items-center space-x-2">
+                                <a href="${shortLink}" target="_blank" rel="noopener noreferrer" 
+                                    class="text-blue-700 font-mono text-sm sm:text-lg select-all hover:text-blue-800 transition duration-150">
+                                    ${shortLink.replace(BASE_DOMAIN_ROOT, '')}
+                                </a>
+                                <button onclick="window.copyLink('${shortLink}')"
+                                        class="copy-btn bg-gray-200 text-gray-700 p-2 rounded-full hover:bg-gray-300 active:bg-gray-400 transition duration-150"
+                                        title="คัดลอกลิงก์ย่อ">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002-2h2a2 2 0 002 2" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    linksList.insertAdjacentHTML('beforeend', itemHtml);
+                });
+
+                noLinksMessage.classList.toggle('hidden', hasLinks);
+
+            }, (error) => {
+                console.error("Firestore onSnapshot error:", error);
+                showMessage(`ไม่สามารถโหลดประวัติลิงก์ได้: ${error.message}`, 'red');
+                noLinksMessage.classList.remove('hidden');
+                noLinksMessage.textContent = 'ข้อผิดพลาดในการโหลดข้อมูล';
+            });
+        }
+
+        // --- Event Listeners and Initializers ---
+
+        window.copyLink = (link) => {
+            copyToClipboard(link);
+        }
+        
+        document.getElementById('shorten-button').addEventListener('click', shortenUrl);
+        document.getElementById('copy-button').addEventListener('click', () => {
+            copyToClipboard(document.getElementById('short-url-display').textContent);
+        });
+
+        // Initialize Firebase on window load
+        window.onload = initializeFirebase;
+
+    </script>
+</body>
+</html>
+
