@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPT Moral School URL Shortener</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter Font -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+Thai:wght@100..900&display=swap');
+        body {
+            font-family: 'Noto Sans Thai', 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 4px;
+        }
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+        .main-card {
+            min-height: 80vh;
+        }
+        .app-hidden {
+            opacity: 0;
+            pointer-events: none; 
+            transition: opacity 0.5s ease-in-out;
+        }
+        /* Custom Modal Styles */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(2px);
+        }
+    </style>
+</head>
+<body class="overflow-x-hidden">
+
+    <!-- Global Loading Overlay -->
+    <div id="global-loader" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-50/90 backdrop-blur-sm transition-opacity duration-500">
+        <div class="text-center p-8 bg-white rounded-3xl shadow-2xl border-4 border-blue-300">
+            <svg class="mx-auto h-16 w-16 text-blue-600 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.253 4.253a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.333 1.757l-1.757 1.757a4.5 4.5 0 01-6.364 6.364l-4.253-4.253a4.5 4.5 0 011.242-7.244" />
+            </svg>
+            <p id="loader-status" class="mt-4 text-xl font-bold text-gray-800">กำลังโหลดระบบ SPT Link...</p>
+        </div>
+    </div>
+    
+    <!-- Custom Modal for Messages (Used instead of alert/confirm) -->
+    <div id="custom-modal" class="fixed inset-0 modal-overlay z-[100] hidden items-center justify-center">
+        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full mx-4 border-t-4 border-blue-500 transform transition-all duration-300 scale-95 opacity-0" id="modal-content-card">
+            <h3 id="modal-title" class="text-xl font-bold text-gray-800 mb-3">ข้อความ</h3>
+            <p id="modal-message" class="text-gray-600 mb-6"></p>
+            <div class="flex justify-end space-x-3">
+                <button id="modal-cancel-btn" class="px-4 py-2 text-gray-600 bg-gray-200 rounded-lg hover:bg-gray-300 transition duration-150 hidden">ยกเลิก</button>
+                <button id="modal-ok-btn" class="px-4 py-2 btn-primary bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-150">ตกลง</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Main Container - Initially hidden -->
+    <div id="main-container" class="max-w-4xl mx-auto p-4 md:p-8 app-hidden">
+
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <div class="flex items-center justify-center space-x-3 mb-4">
+                <img src="https://img5.pic.in.th/file/secure-sv1/IMG_25650953161d1c1bbdd8.jpeg" onerror="this.onerror=null;this.src='https://placehold.co/100x100/333333/FFFFFF?text=Logo';" alt="โลโก้โรงเรียนสตรีพัทลุง" class="w-20 h-20 rounded-full shadow-lg border-4 border-white">
+                <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800">SPT Moral Link</h1>
+            </div>
+            <p class="text-xl md:text-2xl font-light text-gray-600">
+                ระบบย่อ URL โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง
+            </p>
+        </header>
+
+        <!-- Main Content Card -->
+        <main id="app-container" class="bg-white p-6 md:p-10 rounded-3xl shadow-2xl main-card transition-all duration-300">
+
+            <!-- Global User Info Bar & Logout -->
+            <div id="user-info-bar" class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 hidden">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-2 sm:space-y-0">
+                    <div>
+                        <p><strong>ผู้ใช้:</strong> <span id="user-display-name">...</span></p>
+                        <p class="mt-1"><strong>บทบาท:</strong> <span id="user-role-display" class="font-bold">...</span></p>
+                    </div>
+                    <button id="logout-button" class="px-4 py-2 bg-red-500 text-white font-medium rounded-lg hover:bg-red-600 transition duration-150 flex-shrink-0">
+                        ออกจากระบบ
+                    </button>
+                </div>
+            </div>
+
+            <!-- --- 1. Authentication View (Login / Register) --- -->
+            <div id="auth-view" class="space-y-6">
+
+                <!-- Login Panel -->
+                <div id="login-panel" class="max-w-md mx-auto p-8 border border-gray-100 rounded-xl shadow-lg">
+                    <h2 class="text-2xl font-bold text-blue-600 mb-6 text-center">ลงชื่อเข้าใช้</h2>
+                    <div class="space-y-4">
+                        <input type="email" id="login-email" placeholder="อีเมล (เช่น: user@spt.ac.th)"
+                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">
+                        <input type="password" id="login-password" placeholder="รหัสผ่าน"
+                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">
+                        <button id="login-button" class="btn-primary w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-blue-700 transition duration-200">
+                            ลงชื่อเข้าใช้
+                        </button>
+                    </div>
+                    <p class="mt-6 text-center text-sm text-gray-600">
+                        ยังไม่มีบัญชี? 
+                        <a href="#" onclick="showRegisterView(); return false;" class="text-blue-600 hover:text-blue-800 font-medium">ลงทะเบียนที่นี่</a>
+                    </p>
+                </div>
+
+                <!-- Register Panel (Initially Hidden) -->
+                <div id="register-panel" class="max-w-md mx-auto p-8 border border-gray-100 rounded-xl shadow-lg hidden">
+                    <h2 class="text-2xl font-bold text-green-600 mb-6 text-center">ลงทะเบียนผู้ใช้ใหม่</h2>
+                    <p class="text-sm text-center text-red-500 mb-4 font-medium">
+                        *การลงทะเบียนต้องได้รับการอนุมัติจากผู้ดูแลระบบก่อนจึงจะเข้าสู่ระบบได้
+                    </p>
+                    <div class="space-y-4">
+                        <input type="text" id="reg-name" placeholder="ชื่อ"
+                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 transition duration-150" required>
+                        <input type="text" id="reg-surname" placeholder="สกุล"
+                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 transition duration-150" required>
+                        <input type="email" id="reg-email" placeholder="อีเมล"
+                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 transition duration-150" required>
+                        <input type="password" id="reg-password" placeholder="รหัสผ่าน (ขั้นต่ำ 6 ตัวอักษร)"
+                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 transition duration-150" required>
+                        <button id="register-button" class="btn-primary w-full bg-green-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-green-700 transition duration-200">
+                            ส่งคำขอลงทะเบียน
+                        </button>
+                    </div>
+                    <p class="mt-6 text-center text-sm text-gray-600">
+                        มีบัญชีอยู่แล้ว? 
+                        <a href="#" onclick="showLoginView(); return false;" class="text-blue-600 hover:text-blue-800 font-medium">ลงชื่อเข้าใช้</a>
+                    </p>
+                </div>
+            </div>
+
+            <!-- --- 2. Dashboard View (Logged-in User / Admin) --- -->
+            <div id="dashboard-view" class="space-y-10 hidden">
+                
+                <!-- Nav / Admin Link -->
+                <nav class="flex justify-between items-center pb-4 border-b border-gray-200">
+                    <h2 class="text-3xl font-extrabold text-gray-800" id="dashboard-title">แดชบอร์ดผู้ใช้</h2>
+                    <button id="admin-link-button" class="hidden px-4 py-2 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition duration-150 text-sm" onclick="showAdminPanel()">
+                        ไปที่แผงควบคุม Admin
+                    </button>
+                </nav>
+
+                <!-- URL Shortener Form -->
+                <div id="shortener-form-section" class="max-w-2xl mx-auto p-6 bg-gray-50 rounded-xl shadow-inner space-y-4">
+                    <label for="long-url" class="block text-lg font-medium text-gray-700">ลิงก์ต้นฉบับ (Long URL)</label>
+                    <input type="url" id="long-url" placeholder="https://www.your-very-long-link.com/..."
+                           class="w-full p-4 border border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition duration-150" required>
+                    
+                    <div class="flex items-center space-x-3">
+                        <input type="checkbox" id="is-shared-checkbox" class="h-5 w-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500">
+                        <label for="is-shared-checkbox" class="text-gray-700 font-medium">
+                            <span id="share-label">แชร์ลิงก์นี้ให้ผู้ใช้ทุกคนที่เข้าสู่ระบบเห็นหรือไม่</span>
+                        </label>
+                    </div>
+                    
+                    <button id="shorten-button"
+                            class="btn-primary w-full bg-blue-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-blue-700 active:bg-blue-800 transition duration-200 ease-in-out">
+                        ย่อลิงก์
+                    </button>
+                    
+                    <div id="output-section" class="mt-4 p-4 bg-white border border-green-300 rounded-lg hidden">
+                        <p class="text-sm font-semibold text-green-600 mb-2">ลิงก์ย่อสำเร็จแล้ว!</p>
+                        <div class="flex items-center space-x-3">
+                            <p id="short-url-display" class="flex-grow text-lg text-blue-700 overflow-x-auto whitespace-nowrap scrollbar-thin"></p>
+                            <button id="copy-button"
+                                    class="bg-green-500 text-white font-medium py-2 px-4 rounded-lg shadow-md hover:bg-green-600 transition duration-150 flex-shrink-0">
+                                คัดลอก
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- History Section -->
+                <h3 class="text-2xl font-bold text-gray-800 border-b pb-2">ลิงก์ที่แชร์และลิงก์ของคุณ</h3>
+                <div id="links-list" class="space-y-3">
+                    <p id="no-links-message" class="text-gray-500 text-center py-4">กำลังโหลดลิงก์...</p>
+                </div>
+            </div>
+
+            <!-- --- 3. Admin Panel View (Admin Only) --- -->
+            <div id="admin-panel-view" class="space-y-10 hidden">
+                <nav class="flex justify-between items-center pb-4 border-b border-gray-200">
+                    <h2 class="text-3xl font-extrabold text-purple-600">แผงควบคุมผู้ดูแลระบบ</h2>
+                    <button class="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition duration-150 text-sm" onclick="showDashboard()">
+                        กลับไปที่แดชบอร์ด
+                    </button>
+                </nav>
+
+                <!-- User Management Section -->
+                <section class="border p-6 rounded-xl shadow-md">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-4">1. จัดการการลงทะเบียนที่รออนุมัติ</h3>
+                    <div id="pending-users-list" class="space-y-3">
+                        <p class="text-gray-500">ไม่มีผู้ใช้รออนุมัติ</p>
+                    </div>
+                </section>
+
+                <!-- Link Management Section -->
+                <section class="border p-6 rounded-xl shadow-md">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-4">2. จัดการลิงก์ย่อทั้งหมด</h3>
+                    <div id="all-links-list" class="space-y-3">
+                        <p class="text-gray-500">กำลังโหลดลิงก์ทั้งหมด...</p>
+                    </div>
+                </section>
+            </div>
+
+
+            <!-- Redirection message (hidden by default, used when initialising app) -->
+            <div id="redirect-message" class="text-center p-6 bg-yellow-50 rounded-xl border border-yellow-200 hidden">
+                <p class="text-lg font-semibold text-yellow-800">กำลังตรวจสอบลิงก์...</p>
+                <p class="text-sm text-yellow-700 mt-2">โปรดรอสักครู่ ระบบกำลังค้นหาลิงก์ต้นฉบับ</p>
+            </div>
+
+        </main>
+
+        <!-- Footer -->
+        <footer class="text-center mt-8 py-4 text-sm text-gray-500">
+            <p class="tracking-wider">
+                &copy; 2024 SPT MORAL SCHOOL - โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง | All Rights Reserved
+            </p>
+        </footer>
+
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, serverTimestamp, setLogLevel, getDocs, where, doc, getDoc, setDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables
+        let app, db, auth, userId;
+        let isAuthReady = false;
+
+        // --- CONSTANTS ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const userProvidedConfig = {
+            apiKey: "AIzaSyCWad0XjB8mymvDDGn8XGTTrGvHCr2-GIk",
+            authDomain: "fir-url-22a9f.firebaseapp.com",
+            projectId: "fir-url-22a9f",
+            storageBucket: "fir-url-22a9f.firebasestorage.app",
+            messagingSenderId: "144462014577",
+            appId: "1:144462014577:web:48b19158a73934754513d0",
+            measurementId: "G-78S4MF8SMX"
+        };
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : userProvidedConfig;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // Firestore Collection Paths
+        const USERS_COLLECTION_PATH = `artifacts/${appId}/users`;
+        const PUBLIC_LINKS_COLLECTION_PATH = `artifacts/${appId}/public/data/urls`;
+        
+        // Admin Credentials
+        const ADMIN_EMAIL = 'sptmorral@spt.ac.th';
+        const ADMIN_PASSWORD = 'SPTMoralSchool'; // NOTE: Only used for a first-time automatic admin sign-in attempt
+
+        // Base URL (Uses query parameter for client-side redirection)
+        const BASE_DOMAIN_ROOT = window.location.origin + window.location.pathname; 
+
+        // --- GLOBAL STATE ---
+        let userRole = 'unauthenticated'; // 'unauthenticated', 'pending', 'user', 'admin'
+        let userDetails = null; // {name, surname, email, status, role}
+        let currentPage = 'login'; // 'login', 'register', 'dashboard', 'admin'
+        let linkUnsubscribe = null; // To manage the real-time listener subscription
+
+        // --- DOM ELEMENTS ---
+        const mainContainer = document.getElementById('main-container');
+        const globalLoader = document.getElementById('global-loader');
+        const loaderStatus = document.getElementById('loader-status');
+        const authView = document.getElementById('auth-view');
+        const loginPanel = document.getElementById('login-panel');
+        const registerPanel = document.getElementById('register-panel');
+        const dashboardView = document.getElementById('dashboard-view');
+        const adminPanelView = document.getElementById('admin-panel-view');
+        const userIdSpan = document.getElementById('user-id');
+        const userInfoBar = document.getElementById('user-info-bar');
+        const userDisplayName = document.getElementById('user-display-name');
+        const userRoleDisplay = document.getElementById('user-role-display');
+        const adminLinkButton = document.getElementById('admin-link-button');
+
+        // Form elements
+        const longUrlInput = document.getElementById('long-url');
+        const isSharedCheckbox = document.getElementById('is-shared-checkbox');
+        const shortenButton = document.getElementById('shorten-button');
+        const outputSection = document.getElementById('output-section');
+        const shortUrlDisplay = document.getElementById('short-url-display');
+        const linksList = document.getElementById('links-list');
+        const noLinksMessage = document.getElementById('no-links-message');
+        const pendingUsersList = document.getElementById('pending-users-list');
+        const allLinksList = document.getElementById('all-links-list');
+        const dashboardTitle = document.getElementById('dashboard-title');
+        
+        // Modal elements
+        const customModal = document.getElementById('custom-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        const modalOkBtn = document.getElementById('modal-ok-btn');
+        const modalCancelBtn = document.getElementById('modal-cancel-btn');
+
+
+        // --- UTILITY FUNCTIONS ---
+
+        function hideLoader() {
+            globalLoader.style.opacity = '0';
+            globalLoader.style.pointerEvents = 'none';
+            mainContainer.classList.remove('app-hidden');
+        }
+
+        function updateLoaderStatus(text, isError = false) {
+             loaderStatus.textContent = text;
+             loaderStatus.classList.toggle('text-red-600', isError);
+             loaderStatus.classList.toggle('text-gray-800', !isError);
+        }
+        
+        function generateShortId(length = 6) {
+            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += characters.charAt(Math.floor(Math.random() * characters.length));
+            }
+            return result;
+        }
+
+        // Custom Modal Function (replaces alert/confirm)
+        function showModal(title, message, isConfirm = false, onConfirm = () => {}, onCancel = () => {}) {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            
+            modalCancelBtn.classList.toggle('hidden', !isConfirm);
+            
+            modalOkBtn.onclick = () => {
+                customModal.classList.add('hidden');
+                document.getElementById('modal-content-card').classList.add('opacity-0', 'scale-95');
+                onConfirm();
+            };
+            
+            modalCancelBtn.onclick = () => {
+                customModal.classList.add('hidden');
+                document.getElementById('modal-content-card').classList.add('opacity-0', 'scale-95');
+                onCancel();
+            };
+
+            customModal.classList.remove('hidden');
+            customModal.style.display = 'flex';
+            // Simple fade and scale animation
+            setTimeout(() => {
+                document.getElementById('modal-content-card').classList.remove('opacity-0', 'scale-95');
+                document.getElementById('modal-content-card').classList.add('opacity-100', 'scale-100');
+            }, 50);
+        }
+
+        function copyToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showModal('คัดลอกสำเร็จ', 'ลิงก์ย่อถูกคัดลอกไปยังคลิปบอร์ดแล้ว', false);
+                } else {
+                    showModal('ข้อผิดพลาด', 'ไม่สามารถคัดลอกได้: โปรดคัดลอกด้วยตนเอง', false);
+                }
+            } catch (err) {
+                showModal('ข้อผิดพลาด', 'ไม่สามารถคัดลอกได้: โปรดคัดลอกด้วยตนเอง', false);
+            }
+            document.body.removeChild(textarea);
+        }
+
+        // --- AUTH & USER DATA MANAGEMENT ---
+
+        // Checks if the user's document exists and returns it
+        async function getUserDocument(uid) {
+            try {
+                const userDocRef = doc(db, USERS_COLLECTION_PATH, uid);
+                const docSnap = await getDoc(userDocRef);
+                return docSnap.exists() ? docSnap.data() : null;
+            } catch (error) {
+                console.error("Error fetching user document:", error);
+                return null;
+            }
+        }
+
+        // Handles client-side view routing
+        function renderApp() {
+            // Hide all views first
+            [authView, dashboardView, adminPanelView].forEach(el => el.classList.add('hidden'));
+
+            if (userRole === 'unauthenticated') {
+                userInfoBar.classList.add('hidden');
+                authView.classList.remove('hidden');
+                // Ensure correct auth panel is shown
+                if (currentPage === 'register') {
+                    loginPanel.classList.add('hidden');
+                    registerPanel.classList.remove('hidden');
+                } else {
+                    loginPanel.classList.remove('hidden');
+                    registerPanel.classList.add('hidden');
+                }
+            } else {
+                // Logged in users
+                userInfoBar.classList.remove('hidden');
+                userDisplayName.textContent = `${userDetails.name} ${userDetails.surname} (${userDetails.email})`;
+                userRoleDisplay.textContent = userDetails.role === 'admin' ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป';
+                userRoleDisplay.classList.toggle('text-purple-700', userDetails.role === 'admin');
+                
+                if (userDetails.status === 'pending') {
+                    showModal('ลงทะเบียนสำเร็จ', 'คำขอลงทะเบียนของคุณถูกส่งแล้ว โปรดรอผู้ดูแลระบบอนุมัติบัญชีของคุณก่อนเข้าสู่ระบบ', false, () => signOut(auth));
+                    return;
+                }
+                
+                if (userRole === 'admin') {
+                    adminLinkButton.classList.remove('hidden');
+                    if (currentPage === 'admin') {
+                        adminPanelView.classList.remove('hidden');
+                        dashboardTitle.textContent = "แผงควบคุมผู้ดูแลระบบ";
+                    } else {
+                        dashboardView.classList.remove('hidden');
+                        dashboardTitle.textContent = "แดชบอร์ดผู้ใช้";
+                    }
+                } else { // 'user' role
+                    adminLinkButton.classList.add('hidden');
+                    dashboardView.classList.remove('hidden');
+                    dashboardTitle.textContent = "แดชบอร์ดผู้ใช้";
+                }
+            }
+        }
+        
+        function showLoginView() {
+            currentPage = 'login';
+            renderApp();
+        }
+        
+        function showRegisterView() {
+            currentPage = 'register';
+            renderApp();
+        }
+
+        function showDashboard() {
+            currentPage = 'dashboard';
+            // Unsubscribe from admin links listener if active
+            if (linkUnsubscribe) {
+                linkUnsubscribe();
+                linkUnsubscribe = null;
+            }
+            renderApp();
+            setupLinkListener(false); // Setup user link listener
+        }
+        
+        function showAdminPanel() {
+            if (userRole !== 'admin') {
+                showModal('ข้อผิดพลาด', 'คุณไม่มีสิทธิ์เข้าถึงหน้านี้', false);
+                return;
+            }
+            currentPage = 'admin';
+            renderApp();
+            setupAdminListeners(); // Setup both admin listeners
+        }
+
+        // --- AUTH LOGIC ---
+
+        async function registerUser() {
+            const name = document.getElementById('reg-name').value.trim();
+            const surname = document.getElementById('reg-surname').value.trim();
+            const email = document.getElementById('reg-email').value.trim();
+            const password = document.getElementById('reg-password').value;
+
+            if (!name || !surname || !email || password.length < 6) {
+                showModal('ข้อผิดพลาด', 'กรุณากรอกข้อมูลให้ครบถ้วนและรหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร', false);
+                return;
+            }
+            
+            document.getElementById('register-button').disabled = true;
+            document.getElementById('register-button').textContent = 'กำลังดำเนินการ...';
+
+            try {
+                // 1. Create user in Firebase Auth
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const uid = userCredential.user.uid;
+
+                // 2. Create user document in Firestore with 'pending' status
+                const userDocRef = doc(db, USERS_COLLECTION_PATH, uid);
+                const isAdminAttempt = email === ADMIN_EMAIL;
+                
+                await setDoc(userDocRef, {
+                    name: name,
+                    surname: surname,
+                    email: email,
+                    role: isAdminAttempt ? 'admin' : 'user', // Set admin role if matches special email
+                    status: isAdminAttempt ? 'approved' : 'pending', // Auto-approve admin
+                    createdAt: serverTimestamp()
+                });
+
+                showModal('ลงทะเบียนสำเร็จ', 
+                    isAdminAttempt 
+                    ? 'ผู้ดูแลระบบถูกสร้างและอนุมัติแล้ว! คุณสามารถเข้าสู่ระบบได้ทันที'
+                    : 'คำขอลงทะเบียนถูกส่งแล้ว โปรดรอผู้ดูแลระบบอนุมัติบัญชีของคุณ', 
+                    false, 
+                    () => showLoginView());
+                
+            } catch (error) {
+                console.error("Registration Error:", error);
+                let message = 'เกิดข้อผิดพลาดในการลงทะเบียน';
+                if (error.code === 'auth/email-already-in-use') {
+                    message = 'อีเมลนี้ถูกใช้แล้ว กรุณาลองเข้าสู่ระบบหรือใช้อีเมลอื่น';
+                }
+                showModal('ลงทะเบียนไม่สำเร็จ', message, false);
+            } finally {
+                document.getElementById('register-button').disabled = false;
+                document.getElementById('register-button').textContent = 'ส่งคำขอลงทะเบียน';
+            }
+        }
+
+        async function signInUser() {
+            const email = document.getElementById('login-email').value.trim();
+            const password = document.getElementById('login-password').value;
+
+            if (!email || !password) {
+                showModal('ข้อผิดพลาด', 'กรุณากรอกอีเมลและรหัสผ่าน', false);
+                return;
+            }
+            
+            document.getElementById('login-button').disabled = true;
+            document.getElementById('login-button').textContent = 'กำลังดำเนินการ...';
+
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                // AuthStateChange will handle the rest
+            } catch (error) {
+                console.error("Login Error:", error);
+                let message = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
+                showModal('ลงชื่อเข้าใช้ไม่สำเร็จ', message, false);
+            } finally {
+                document.getElementById('login-button').disabled = false;
+                document.getElementById('login-button').textContent = 'ลงชื่อเข้าใช้';
+            }
+        }
+
+        // --- ADMIN MANAGEMENT LOGIC ---
+
+        function setupAdminListeners() {
+            if (userRole !== 'admin') return;
+
+            // Listener 1: Pending Users
+            const qUsers = query(collection(db, USERS_COLLECTION_PATH), where("status", "==", "pending"));
+            onSnapshot(qUsers, (snapshot) => {
+                pendingUsersList.innerHTML = '';
+                let hasPending = false;
+                
+                snapshot.forEach((doc) => {
+                    hasPending = true;
+                    const data = doc.data();
+                    const docId = doc.id;
+
+                    const itemHtml = `
+                        <div class="p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex justify-between items-center text-sm">
+                            <div>
+                                <p class="font-bold">${data.name} ${data.surname}</p>
+                                <p class="text-gray-600">${data.email}</p>
+                            </div>
+                            <div class="space-x-2 flex-shrink-0">
+                                <button onclick="window.approveUser('${docId}', '${data.email}')" 
+                                        class="px-3 py-1 bg-green-500 text-white rounded-md hover:bg-green-600 transition">อนุมัติ</button>
+                                <button onclick="window.rejectUser('${docId}', '${data.email}')" 
+                                        class="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600 transition">ปฏิเสธ</button>
+                            </div>
+                        </div>
+                    `;
+                    pendingUsersList.insertAdjacentHTML('beforeend', itemHtml);
+                });
+                if (!hasPending) {
+                    pendingUsersList.innerHTML = '<p class="text-gray-500">ไม่มีผู้ใช้รออนุมัติ</p>';
+                }
+            }, (error) => console.error("Error listening to pending users:", error));
+
+
+            // Listener 2: All Links (for admin management)
+            const qLinks = query(collection(db, PUBLIC_LINKS_COLLECTION_PATH), orderBy('timestamp', 'desc'));
+            
+            // Unsubscribe existing user listener if active before setting up admin listener
+            if (linkUnsubscribe) {
+                linkUnsubscribe();
+            }
+
+            linkUnsubscribe = onSnapshot(qLinks, (snapshot) => {
+                allLinksList.innerHTML = '';
+                let hasLinks = false;
+                
+                snapshot.forEach((doc) => {
+                    hasLinks = true;
+                    const data = doc.data();
+                    const docId = doc.id;
+                    const shortLink = `${BASE_DOMAIN_ROOT}?id=${data.shortId}`;
+                    const date = data.timestamp ? new Date(data.timestamp.toDate()).toLocaleString('th-TH') : 'N/A';
+                    
+                    const itemHtml = `
+                        <div class="link-item p-4 bg-white rounded-xl shadow-sm border border-gray-100 flex justify-between items-center text-sm">
+                            <div class="min-w-0 flex-grow pr-4">
+                                <p class="font-bold text-blue-600 truncate">${shortLink.replace(BASE_DOMAIN_ROOT, '...')}</p>
+                                <p class="text-gray-600 truncate text-xs" title="${data.longUrl}">${data.longUrl}</p>
+                                <p class="text-gray-500 text-xs mt-1">
+                                    สร้างโดย: ${data.creatorId.substring(0, 8)}... (${data.isShared ? 'แชร์สาธารณะ' : 'ส่วนตัว'}) - ${date}
+                                </p>
+                            </div>
+                            <button onclick="window.deleteLink('${docId}', '${data.longUrl}')"
+                                    class="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600 transition flex-shrink-0">
+                                ลบ
+                            </button>
+                        </div>
+                    `;
+                    allLinksList.insertAdjacentHTML('beforeend', itemHtml);
+                });
+                if (!hasLinks) {
+                    allLinksList.innerHTML = '<p class="text-gray-500 text-center py-4">ไม่มีลิงก์ย่อในระบบ</p>';
+                }
+            }, (error) => console.error("Error listening to all links:", error));
+        }
+
+        window.approveUser = async (uid, email) => {
+            showModal('ยืนยันการอนุมัติ', `คุณต้องการอนุมัติบัญชี ${email} ใช่หรือไม่?`, true, async () => {
+                try {
+                    const userDocRef = doc(db, USERS_COLLECTION_PATH, uid);
+                    await updateDoc(userDocRef, { status: 'approved' });
+                    showModal('อนุมัติสำเร็จ', `ผู้ใช้ ${email} ถูกอนุมัติแล้ว`, false);
+                } catch (error) {
+                    showModal('ข้อผิดพลาด', `ไม่สามารถอนุมัติได้: ${error.message}`, false);
+                }
+            });
+        };
+
+        window.rejectUser = async (uid, email) => {
+            showModal('ยืนยันการปฏิเสธ', `คุณต้องการปฏิเสธและลบบัญชี ${email} ใช่หรือไม่? (จะต้องลบใน Firebase Auth ด้วยตนเอง)`, true, async () => {
+                try {
+                    // We only delete the Firestore document; Auth user deletion must be done on the server/console.
+                    await deleteDoc(doc(db, USERS_COLLECTION_PATH, uid));
+                    showModal('ปฏิเสธสำเร็จ', `ผู้ใช้ ${email} ถูกลบออกจากรายการรออนุมัติแล้ว (ต้องลบใน Auth ด้วยตนเอง)`, false);
+                } catch (error) {
+                    showModal('ข้อผิดพลาด', `ไม่สามารถปฏิเสธ/ลบได้: ${error.message}`, false);
+                }
+            });
+        };
+
+        window.deleteLink = async (docId, longUrl) => {
+            showModal('ยืนยันการลบ', `คุณต้องการลบลิงก์ ${longUrl} ใช่หรือไม่?`, true, async () => {
+                try {
+                    await deleteDoc(doc(db, PUBLIC_LINKS_COLLECTION_PATH, docId));
+                    showModal('ลบสำเร็จ', 'ลิงก์ถูกลบออกจากระบบแล้ว', false);
+                } catch (error) {
+                    showModal('ข้อผิดพลาด', `ไม่สามารถลบลิงก์ได้: ${error.message}`, false);
+                }
+            });
+        };
+
+
+        // --- URL SHORTENER LOGIC ---
+
+        async function shortenUrl() {
+            if (userRole === 'unauthenticated' || userDetails.status !== 'approved') {
+                showModal('ข้อผิดพลาด', 'คุณต้องลงชื่อเข้าใช้และได้รับการอนุมัติก่อนจึงจะย่อลิงก์ได้', false);
+                return;
+            }
+
+            const longUrl = longUrlInput.value.trim();
+            const isShared = isSharedCheckbox.checked;
+
+            if (!longUrl || !longUrl.startsWith('http')) {
+                showModal('ข้อผิดพลาด', 'กรุณาใส่ Long URL ที่ถูกต้อง (เริ่มต้นด้วย http/https)', false);
+                return;
+            }
+
+            shortenButton.disabled = true;
+            shortenButton.textContent = 'กำลังย่อลิงก์...';
+            outputSection.classList.add('hidden');
+
+            try {
+                const shortId = generateShortId();
+                const shortLink = `${BASE_DOMAIN_ROOT}?id=${shortId}`;
+
+                await addDoc(collection(db, PUBLIC_LINKS_COLLECTION_PATH), {
+                    longUrl: longUrl,
+                    shortId: shortId,
+                    creatorId: userId,
+                    isShared: isShared, // NEW: Share status
+                    timestamp: serverTimestamp()
+                });
+                
+                shortUrlDisplay.textContent = shortLink;
+                outputSection.classList.remove('hidden');
+                longUrlInput.value = '';
+                showModal('ย่อลิงก์สำเร็จ!', 'ลิงก์ย่อของคุณพร้อมใช้งานแล้ว', false);
+
+            } catch (error) {
+                console.error("Error shortening URL:", error);
+                showModal('ย่อลิงก์ไม่สำเร็จ', `เกิดข้อผิดพลาด: ${error.message}`, false);
+            } finally {
+                shortenButton.disabled = false;
+                shortenButton.textContent = 'ย่อลิงก์';
+            }
+        }
+
+        // Real-time Listener for Links (User Dashboard)
+        function setupLinkListener(isAdminView = false) {
+            if (!db || !userId) {
+                console.error("Firestore or User ID not ready.");
+                return;
+            }
+            
+            // If the listener is already active, unsubscribe it
+            if (linkUnsubscribe) {
+                linkUnsubscribe();
+            }
+
+            // Query: Where creatorId is current user OR isShared is true
+            // Firestore does not support OR queries on multiple fields directly without indexes.
+            // We must fetch two separate queries and merge/deduplicate them on the client.
+            // For simplicity and adhering to single-file constraint, we will fetch *all* links 
+            // and filter on the client-side based on the 'isShared' and 'creatorId' for the dashboard, 
+            // but use the Admin's full list in the admin view.
+            
+            const q = query(
+                collection(db, PUBLIC_LINKS_COLLECTION_PATH),
+                orderBy('timestamp', 'desc')
+            );
+            
+            linkUnsubscribe = onSnapshot(q, (snapshot) => {
+                if (isAdminView) return; // Admin view uses a different list in the admin panel
+
+                linksList.innerHTML = '';
+                let hasLinks = false;
+                
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const shortLink = `${BASE_DOMAIN_ROOT}?id=${data.shortId}`;
+                    const isCreator = data.creatorId === userId;
+                    const isShared = data.isShared === true; // Ensure boolean check
+
+                    // Filter: Only show links created by the user OR marked as shared
+                    if (isCreator || isShared) {
+                        hasLinks = true;
+
+                        const date = data.timestamp ? new Date(data.timestamp.toDate()).toLocaleString('th-TH') : 'N/A';
+                        
+                        const itemHtml = `
+                            <div class="link-item p-4 bg-white rounded-xl shadow-md border border-gray-100 transition duration-150 flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0">
+                                <div class="flex-grow min-w-0">
+                                    <p class="text-xs font-semibold ${isCreator ? 'text-blue-600' : 'text-gray-500'}">
+                                        ${isCreator ? 'คุณสร้าง' : 'แชร์โดย: ' + data.creatorId.substring(0, 8) + '...'} - ${date}
+                                        ${isShared ? '<span class="ml-2 px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full">สาธารณะ</span>' : ''}
+                                    </p>
+                                    <p class="block text-sm text-gray-500 truncate mt-0.5" title="${data.longUrl}">
+                                        ${data.longUrl}
+                                    </p>
+                                </div>
+                                <div class="md:ml-4 flex-shrink-0 flex items-center space-x-2">
+                                    <a href="${shortLink}" target="_blank" rel="noopener noreferrer" 
+                                        class="text-blue-700 font-mono text-sm sm:text-lg select-all hover:text-blue-800 transition duration-150">
+                                        ${shortLink.replace(BASE_DOMAIN_ROOT, '')}
+                                    </a>
+                                    <button onclick="window.copyLinkToClipboard('${shortLink}')"
+                                            class="copy-btn bg-gray-200 text-gray-700 p-2 rounded-full hover:bg-gray-300 transition duration-150"
+                                            title="คัดลอกลิงก์ย่อ">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002-2h2a2 2 0 002 2" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                        linksList.insertAdjacentHTML('beforeend', itemHtml);
+                    }
+                });
+
+                noLinksMessage.classList.toggle('hidden', hasLinks);
+                if (!hasLinks) noLinksMessage.textContent = 'ยังไม่มีลิงก์ที่คุณสร้างหรือลิงก์สาธารณะในระบบ';
+
+            }, (error) => {
+                console.error("Firestore onSnapshot error:", error);
+                noLinksMessage.classList.remove('hidden');
+                noLinksMessage.textContent = 'ข้อผิดพลาดในการโหลดข้อมูล';
+            });
+        }
+        
+        // 0. Redirection Logic (Check URL for ?id= parameter and redirect if found)
+        async function handleRedirection(dbInstance) {
+            const params = new URLSearchParams(window.location.search);
+            const shortId = params.get('id');
+
+            if (shortId && dbInstance) {
+                globalLoader.style.opacity = '1';
+                globalLoader.style.pointerEvents = 'auto';
+                updateLoaderStatus("กำลังเปลี่ยนเส้นทาง... ค้นหาลิงก์ต้นฉบับ", false);
+                
+                const q = query(collection(dbInstance, PUBLIC_LINKS_COLLECTION_PATH), where("shortId", "==", shortId));
+                
+                try {
+                    const querySnapshot = await getDocs(q);
+                    
+                    if (!querySnapshot.empty) {
+                        const docData = querySnapshot.docs[0].data();
+                        const longUrl = docData.longUrl;
+                        
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        window.location.replace(longUrl);
+                        return true;
+                    } else {
+                        updateLoaderStatus("ไม่พบลิงก์ที่ย่อนี้ในระบบ (URL ID: " + shortId + ")", true);
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        setTimeout(() => hideLoader(), 3000); 
+                    }
+                } catch (error) {
+                    console.error("Redirection fetch failed:", error);
+                    updateLoaderStatus(`เกิดข้อผิดพลาดในการดึงข้อมูลลิงก์: ${error.message}`, true);
+                    setTimeout(() => hideLoader(), 4000); 
+                }
+                return true;
+            }
+            return false;
+        }
+
+        // 1. Firebase Initialization and Authentication
+        async function initializeFirebase() {
+            try {
+                setLogLevel('Debug');
+                updateLoaderStatus('กำลังเชื่อมต่อ Firebase และรับรองตัวตน...');
+                
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Attempt redirection first (needs db)
+                const redirected = await handleRedirection(db);
+                if (redirected) return; // Stop if redirection is handled
+
+                // Sign in using custom token or anonymously for initial access
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // Wait for auth state to be ready
+                onAuthStateChanged(auth, async (user) => {
+                    if (user && !user.isAnonymous) {
+                        userId = user.uid;
+                        userIdSpan.textContent = userId;
+                        
+                        // 1. Fetch user role and status from Firestore
+                        userDetails = await getUserDocument(userId);
+
+                        if (!userDetails) {
+                            // This should not happen if user signed in via email/password, but handle case where doc is missing
+                            showModal('ข้อผิดพลาด', 'ไม่พบข้อมูลผู้ใช้ โปรดลงทะเบียนใหม่', false, () => signOut(auth));
+                            userRole = 'unauthenticated';
+                        } else {
+                            // 2. Set user state
+                            userRole = userDetails.role;
+                            
+                            if (userDetails.status === 'pending') {
+                                userRole = 'pending';
+                            }
+
+                            // 3. Set initial page and listeners
+                            if (userRole === 'admin') {
+                                currentPage = 'dashboard';
+                            } else if (userRole === 'user') {
+                                currentPage = 'dashboard';
+                            } else {
+                                currentPage = 'login';
+                            }
+                            setupLinkListener(userRole === 'admin' && currentPage === 'admin');
+                        }
+
+                    } else {
+                        // User is anonymous or logged out
+                        userId = null;
+                        userRole = 'unauthenticated';
+                        userDetails = null;
+                        currentPage = 'login';
+                        userIdSpan.textContent = 'ยังไม่ได้ลงชื่อเข้าใช้';
+                        if (linkUnsubscribe) {
+                            linkUnsubscribe();
+                            linkUnsubscribe = null;
+                        }
+                    }
+                    isAuthReady = true;
+                    updateLoaderStatus('การเชื่อมต่อสำเร็จ! กำลังแสดงผล...');
+                    renderApp(); // Render the correct view based on auth state
+                    setTimeout(() => hideLoader(), 500);
+                });
+
+            } catch (error) {
+                console.error("Firebase Initialization Error:", error);
+                updateLoaderStatus(`ข้อผิดพลาดในการเชื่อมต่อ: ${error.message}`, true);
+            }
+        }
+        
+        // --- Event Listeners and Initializers ---
+        
+        // Expose functions globally for HTML inline events
+        window.copyLinkToClipboard = copyToClipboard;
+        window.showLoginView = showLoginView;
+        window.showRegisterView = showRegisterView;
+        window.showDashboard = showDashboard;
+        window.showAdminPanel = showAdminPanel;
+
+        // Attach listeners
+        document.getElementById('register-button').addEventListener('click', registerUser);
+        document.getElementById('login-button').addEventListener('click', signInUser);
+        document.getElementById('logout-button').addEventListener('click', () => {
+            showModal('ยืนยันการออกจากระบบ', 'คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบ?', true, () => signOut(auth));
+        });
+        document.getElementById('shorten-button').addEventListener('click', shortenUrl);
+        document.getElementById('copy-button').addEventListener('click', () => {
+            copyToClipboard(document.getElementById('short-url-display').textContent);
+        });
+
+        // Initialize Firebase on window load
+        window.onload = initializeFirebase;
+
+    </script>
+</body>
+</html>
+
